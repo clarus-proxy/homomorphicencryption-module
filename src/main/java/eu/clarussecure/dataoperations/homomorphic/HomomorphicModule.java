@@ -215,31 +215,31 @@ public class HomomorphicModule implements DataOperation{
 
             Base64.Decoder decoder = Base64.getDecoder();
 
-            // First, parse the selection criteria and prepare the Select instances
-            Map<String, List<Select>> selectorsSet = new HashMap<>();
-
-            if (com.getCriteria() == null) {
-                // There is no criteria, use the Identity Function
-                List<Select> selectors = selectorsSet.get("all");
-                if (selectors == null) {
-                    selectors = new ArrayList<>();
-                    selectorsSet.put("all", selectors);
-                } 
-                selectors.add(Select.getInstance("id", "")); // No threshold is required for the identity
-            } else {
-                // There are criteria. Build the selectors
-                for (Criteria crit : com.getCriteria()) {
-                    // Get the selectors of the attribute
-                    List<Select> selectors = selectorsSet.get(crit.getAttributeName());
-                    // Create the list of it does not exist
-                    if (selectors == null) {
-                        selectors = new ArrayList<>();
-                        selectorsSet.put(crit.getAttributeName(), selectors);
-                    }
-                    // Add the current selector to the list
-                    selectors.add(Select.getInstance(crit.getOperator(), crit.getValue()));
-                }
-            }
+//            // First, parse the selection criteria and prepare the Select instances
+//            Map<String, List<Select>> selectorsSet = new HashMap<>();
+//
+//            if (com.getCriteria() == null) {
+//                // There is no criteria, use the Identity Function
+//                List<Select> selectors = selectorsSet.get("all");
+//                if (selectors == null) {
+//                    selectors = new ArrayList<>();
+//                    selectorsSet.put("all", selectors);
+//                } 
+//                selectors.add(Select.getInstance("id", "")); // No threshold is required for the identity
+//            } else {
+//                // There are criteria. Build the selectors
+//                for (Criteria crit : com.getCriteria()) {
+//                    // Get the selectors of the attribute
+//                    List<Select> selectors = selectorsSet.get(crit.getAttributeName());
+//                    // Create the list of it does not exist
+//                    if (selectors == null) {
+//                        selectors = new ArrayList<>();
+//                        selectorsSet.put(crit.getAttributeName(), selectors);
+//                    }
+//                    // Add the current selector to the list
+//                    selectors.add(Select.getInstance(crit.getOperator(), crit.getValue()));
+//                }
+//            }
 
             // Second, decipher the attribute names
             try {
@@ -263,18 +263,18 @@ public class HomomorphicModule implements DataOperation{
                 // Second, decipher the contents
                 for (int i = 0; i < content.length; i++) {
                     String[] row = new String[plainAttributeNames.length]; // Reconstructed row
-                    boolean selected = true; // to decide if the row should be included in teh result or not
+//                    boolean selected = true; // to decide if the row should be included in teh result or not
                     for (int j = 0; j < plainAttributeNames.length; j++) {
                         // We assume the attribute names are in the same order of the content
-                        // Get the selectors of this attribute
-                        List<Select> attributeSelectors = selectorsSet.get(plainAttributeNames[j]);
-                        // if no selectors were found, simply insert the identity
-                        if (attributeSelectors == null)
-                            attributeSelectors = new ArrayList<>();
-                        // Do not forget the filters applied to "all";
-                        if (selectorsSet.get("all") != null) {
-                            attributeSelectors.addAll(selectorsSet.get("all"));
-                        }
+//                        // Get the selectors of this attribute
+//                        List<Select> attributeSelectors = selectorsSet.get(plainAttributeNames[j]);
+//                        // if no selectors were found, simply insert the identity
+//                        if (attributeSelectors == null)
+//                            attributeSelectors = new ArrayList<>();
+//                        // Do not forget the filters applied to "all";
+//                        if (selectorsSet.get("all") != null) {
+//                            attributeSelectors.addAll(selectorsSet.get("all"));
+//                        }
 
                         String plainValue;
                         // Get the proteciton type of this attribute
@@ -305,19 +305,21 @@ public class HomomorphicModule implements DataOperation{
                             plainValue = content[i][j];
                         }
 
-                        // Evaluate each attribute selector
-                        for (Select selector : attributeSelectors) {
-                            // Decide if the row should be selected or not
-                            // NOTE - This line gives the "and" semantics to multiple criteria
-                            selected = selected && selector.select(plainValue);
-                        }
+//                        // Evaluate each attribute selector
+//                        for (Select selector : attributeSelectors) {
+//                            // Decide if the row should be selected or not
+//                            // NOTE - This line gives the "and" semantics to multiple criteria
+//                            selected = selected && selector.select(plainValue);
+//                        }
                         row[j] = plainValue;
                     }
                     // Add the column only if all the selectors have passed
-                    if (selected) {
-                        rowCount++;
-                        plainContents.add(row);
-                    }
+//                    if (selected) {
+//                        rowCount++;
+//                        plainContents.add(row);
+//                    }
+                    plainContents.add(row);
+                    rowCount++;
                 }
             } catch (Exception e) {
                 e.printStackTrace();

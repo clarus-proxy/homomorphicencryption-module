@@ -16,8 +16,4 @@ public class HomomorphicCommand extends DataOperationCommand {
         this.mapping = mapping;
         this.criteria = criteria;
     }
-
-    public void setCriteria(Criteria[] criteria) {
-        this.criteria = criteria;
-    }
 }

@@ -34,8 +34,8 @@ public class Demo {
         String[][] data = readData(DATA_FILENAME);
 
         // Initialize the "cloud" to execute the commands
-        Cloud cloud = null;
-        Cloud untouchedCloud = new Cloud(attributes);
+        HomomorphicCloud cloud = null;
+        HomomorphicCloud untouchedCloud = new HomomorphicCloud(attributes);
         untouchedCloud.addRows(data);
 
         // Print the untouched cloud
@@ -55,7 +55,7 @@ public class Demo {
         // First "POST" to the cloud
         List<DataOperationCommand> commandsPost = encryption.post(qualifiedAttribs, data);
         // Create a cloud object with the protected Attribute Names
-        cloud = new Cloud(commandsPost.get(0).getProtectedAttributeNames());
+        cloud = new HomomorphicCloud(commandsPost.get(0).getProtectedAttributeNames());
 
         // Query the cloud
         for (DataOperationCommand command : commandsPost) {
@@ -102,7 +102,7 @@ public class Demo {
         HomomorphicResult response = (HomomorphicResult) r.get(0);
 
         // Show the content of the response, using an auxiliary cloud
-        Cloud aux = new Cloud(response.getDecryptedAttributeNames());
+        HomomorphicCloud aux = new HomomorphicCloud(response.getDecryptedAttributeNames());
         aux.addRows(response.getDecryptedContent());
         System.out.println("*****************DECRYPTED******************");
         System.out.print(aux.printCloudContents());
@@ -128,7 +128,7 @@ public class Demo {
         response = (HomomorphicResult) r.get(0);
 
         // Show the content of the response, using an auxiliary cloud
-        aux = new Cloud(response.getDecryptedAttributeNames());
+        aux = new HomomorphicCloud(response.getDecryptedAttributeNames());
         aux.addRows(response.getDecryptedContent());
         System.out.println("****************DECRYPTED-2*****************");
         System.out.print(aux.printCloudContents());
@@ -152,7 +152,7 @@ public class Demo {
         response = (HomomorphicResult) r.get(0);
 
         // Show the content of the response, using an auxiliary cloud
-        aux = new Cloud(response.getDecryptedAttributeNames());
+        aux = new HomomorphicCloud(response.getDecryptedAttributeNames());
         aux.addRows(response.getDecryptedContent());
         System.out.println("****************DECRYPTED-3*****************");
         System.out.print(aux.printCloudContents());
@@ -160,8 +160,9 @@ public class Demo {
 
         // CASE 4: Find records with multiple criteria in different columns
         // NOTE - At the moment, using multiple criteria has an "and" semantics
-        crit = new Criteria("meuseDB/meuse/gid", ">=", "20");
-        Criteria crit2 = new Criteria("meuseDB/meuse/lead", ">=", "500");
+        crit = new Criteria("meuseDB/meuse/gid", ">=", "20"); // gid is not encrypted.
+        //Criteria crit2 = new Criteria("meuseDB/meuse/lead", ">=", "500"); lead is encrypted... THIS IS NOT SUPPORTED
+        Criteria crit2 = new Criteria("meuseDB/meuse/elev", ">=", "8.0");
         commandsGet = encryption.get(qualifiedAttribs, new Criteria[] { crit, crit2 });
 
         // Query the cloud
@@ -178,7 +179,7 @@ public class Demo {
         response = (HomomorphicResult) r.get(0);
 
         // Show the content of the response, using an auxiliary cloud
-        aux = new Cloud(response.getDecryptedAttributeNames());
+        aux = new HomomorphicCloud(response.getDecryptedAttributeNames());
         aux.addRows(response.getDecryptedContent());
         System.out.println("****************DECRYPTED-4*****************");
         System.out.print(aux.printCloudContents());
