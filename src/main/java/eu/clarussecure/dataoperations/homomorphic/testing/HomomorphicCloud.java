@@ -3,13 +3,14 @@ package eu.clarussecure.dataoperations.homomorphic.testing;
 import eu.clarussecure.dataoperations.Criteria;
 import eu.clarussecure.dataoperations.homomorphic.HomomorphicRemoteOperationCommand;
 import eu.clarussecure.dataoperations.homomorphic.operators.Select;
+import eu.clarussecure.encryption.paillier.EncryptedInteger;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 public class HomomorphicCloud {
@@ -110,35 +111,17 @@ public class HomomorphicCloud {
     public String[][] performHomomorphicComputation(String[] protectedAttribNames, Criteria[] criteria,
             HomomorphicRemoteOperationCommand command) {
         // Select the columns regarding the required attribute names
-        List<String[]> involvedRows = new ArrayList<>();
+        List<String[]> involvedRows;
         String[] result;
+        int i;
 
         // First, retrieve the involved rows.
-
-        // TODO - Process the criteria to filter the data
-        // IDEA - This could be done in this part of the code. It as simple as moving the "selection" code from the Module to here.
-        for (String[] row : data) { // Select each row of the loaded data
-            int p = 0; // column position in the results table
-            String[] selectedRow = new String[protectedAttribNames.length]; // new result row
-            for (int i = 0; i < columns.length; i++) { // for each stored column name
-                for (String protectedAttribName : protectedAttribNames) { //for each requested column
-                    if (columns[i].equals(protectedAttribName)) { // check if this is a requested column
-                        // Copy the value on position i (data stored in the requested column) in the found row
-                        // to the row i, column p on the results
-                        selectedRow[p] = row[i];
-                        p++; // move to the left on the results table
-                        break;
-                    }
-                }
-            }
-            involvedRows.add(selectedRow);
-        }
+        involvedRows = new ArrayList<>(Arrays.asList(this.getRows(protectedAttribNames, criteria)));
 
         // Second, perform the homomorphic operation
         // Find the index of the involved column
-        int i;
         for (i = 0; i < protectedAttribNames.length; i++) {
-            if (protectedAttribNames[i].equals(command.getInvelvedColumn())) {
+            if (protectedAttribNames[i].equals(command.getInvolvedColumn())) {
                 break;
             }
         }
@@ -146,34 +129,65 @@ public class HomomorphicCloud {
         // Reduce the involved rows into a single one.
         // NOTE: The other columns will retain a single value of the set
         // (one row, but it cannot be assured which, since Java can parallelize the reduce)
-        result = involvedRows.stream().reduce(new String[protectedAttribNames.length], // Initial result creator
-                (row1, row2) -> { // Reducing function: it takes two String arrays (rows) and reduce them homomorphically
-                    // Create the BigInteger object
-                    // FIXME - This line decode the string using the platform's default charset. THIS COULD POSE A PROBLEM
-                    BigInteger bigIntValueRow1 = new BigInteger(row1[index].getBytes());
-                    BigInteger bigIntValueRow2 = new BigInteger(row2[index].getBytes());
+        // Create an auxiliary array with a zero encoded in the 
+        String[] auxStart = involvedRows.get(0).clone();
+        BigInteger auxZero = command.getEncryptedZero().getValue();
+        auxStart[index] = Base64.getEncoder().encodeToString(auxZero.toByteArray());
+        result = involvedRows.stream().reduce(auxStart.clone(), // Initial result creator
+                (String[] row1, String[] row2) -> { // Reducing function: it takes two String arrays (rows) and reduce them homomorphically
+                    try {
+                        // Create the BigInteger object
+                        // The values stored in the cloud are B64-encoded
+                        BigInteger bigIntValueRow1 = new BigInteger(Base64.getDecoder().decode(row1[index]));
+                        BigInteger bigIntValueRow2 = new BigInteger(Base64.getDecoder().decode(row2[index]));
 
-                    // Operate both values according to the given operation
-                    BigInteger homoResult = null;
-                    switch (command.getOperation()) {
-                    case "+":
-                        homoResult = bigIntValueRow1.add(bigIntValueRow2);
-                        break;
-                    case "*":
-                        homoResult = bigIntValueRow1.multiply(bigIntValueRow2);
-                        break;
-                    default:
-                        throw new UnsupportedOperationException(
-                                "Homomorphic operation not supported: " + command.getOperation());
+                        // Create the EncryptedInteger objects to operate the values;
+                        EncryptedInteger int1 = new EncryptedInteger(bigIntValueRow1, command.getPublicKey());
+                        EncryptedInteger int2 = new EncryptedInteger(bigIntValueRow2, command.getPublicKey());
+
+                        // Operate both values according to the given operation
+                        BigInteger homoResult = null;
+                        switch (command.getOperation()) {
+                        case "+":
+                            homoResult = int1.sum(int2).getValue();
+                            break;
+                        default:
+                            throw new UnsupportedOperationException(
+                                    "Homomorphic operation not supported: " + command.getOperation());
+                        }
+                        String[] res = row1.clone();
+                        // Recover the bytes of the result BigInteger and B64-encode them
+                        res[index] = Base64.getEncoder().encodeToString(homoResult.toByteArray());
+                        return res;
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
-                    String[] res = row1.clone();
-                    res[index] = homoResult.toString();
-                    return res;
+                    return null;
                 });
         return new String[][] { result };
     }
 
-    public String printCloudContents() {
+    public String decodeAndPrintCloudContents() {
+        // This method is used to show the encoded versions of the clouds.
+        String ret = Arrays.deepToString(columns) + "\n";
+
+        for (String[] row : data) {
+            String[] newRow = row.clone();
+            for (int i = 0; i < row.length; i++) {
+                if (this.columns[i].endsWith("_homoenc")) {
+                    BigInteger integer = new BigInteger(Base64.getDecoder().decode(row[i]));
+                    newRow[i] = integer.longValue() + "";
+                } else {
+                    newRow[i] = row[i];
+                }
+            }
+            ret += Arrays.deepToString(newRow) + "\n";
+        }
+        return ret;
+    }
+
+    public String simplePrintCloudContents() {
+        // This method is used to show the non-encoded versions of the clouds.
         String ret = Arrays.deepToString(columns) + "\n";
 
         for (String[] row : data) {

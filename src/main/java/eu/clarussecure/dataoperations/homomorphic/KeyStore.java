@@ -10,11 +10,7 @@ import eu.clarussecure.encryption.paillier.KeyPair;
 import eu.clarussecure.encryption.paillier.Paillier;
 import eu.clarussecure.encryption.paillier.PublicKey;
 import eu.clarussecure.encryption.paillier.SecretKey;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.math.BigInteger;
 import java.util.Base64;
 import java.util.logging.Level;
@@ -39,24 +35,27 @@ public class KeyStore {
         // Get the database (will be created if not present)
         this.db = mongoClient.getDatabase("CLARUS");
         this.keystoreCollection = this.db.getCollection("keystore");
-
-        this.instancesNumber++;
     }
 
-    public static KeyStore getInstance() {
+    public static synchronized KeyStore getInstance() {
         if (KeyStore.instance == null) {
             KeyStore.instance = new KeyStore();
         }
+        KeyStore.instance.logInstance();
         return KeyStore.instance;
     }
 
-    public void deleteInstance() {
+    public synchronized void deleteInstance() {
         this.instancesNumber--;
 
         if (this.instancesNumber <= 0) {
             this.mongoClient.close();
             KeyStore.instance = null;
         }
+    }
+
+    private void logInstance() {
+        this.instancesNumber++;
     }
 
     public KeyPair retrieveKey(String dataID) throws IOException {
@@ -92,21 +91,10 @@ public class KeyStore {
             bytesPrivKeyM = decoder.decode(stringPrivKeyM);
 
             // Create the BigInteger objects
-            ObjectInputStream inputStream;
-            try {
-                inputStream = new ObjectInputStream(new ByteArrayInputStream(bytesPubKeyN));
-                pkN = (BigInteger) inputStream.readObject();
-                inputStream = new ObjectInputStream(new ByteArrayInputStream(bytesPubKeyG));
-                pkG = (BigInteger) inputStream.readObject();
-                inputStream = new ObjectInputStream(new ByteArrayInputStream(bytesPrivKeyL));
-                skL = (BigInteger) inputStream.readObject();
-                inputStream = new ObjectInputStream(new ByteArrayInputStream(bytesPrivKeyM));
-                skM = (BigInteger) inputStream.readObject();
-            } catch (IOException | ClassNotFoundException e) {
-                System.err.println("There was an error decoding the homomorphic keys");
-                e.printStackTrace();
-                System.exit(1);
-            }
+            pkN = new BigInteger(bytesPubKeyN);
+            pkG = new BigInteger(bytesPubKeyG);
+            skL = new BigInteger(bytesPrivKeyL);
+            skM = new BigInteger(bytesPrivKeyM);
 
             // Create the Key Objects
             sk = new SecretKey(skL, skM);
@@ -132,33 +120,14 @@ public class KeyStore {
         BigInteger skL = keys.getSecret().getLambda();
         BigInteger skM = keys.getSecret().getMu();
 
-        ByteArrayOutputStream baos;
-        ObjectOutputStream outputStream;
-        try {
-            // Extract the bytes of each integer
-            baos = new ByteArrayOutputStream();
-            outputStream = new ObjectOutputStream(baos);
-            outputStream.writeObject(pkN);
-            bytesPubKeyN = baos.toByteArray();
+        // Extract the bytes of each integer
+        bytesPubKeyN = pkN.toByteArray();
 
-            baos = new ByteArrayOutputStream();
-            outputStream = new ObjectOutputStream(baos);
-            outputStream.writeObject(pkG);
-            bytesPubKeyG = baos.toByteArray();
+        bytesPubKeyG = pkG.toByteArray();
 
-            baos = new ByteArrayOutputStream();
-            outputStream = new ObjectOutputStream(baos);
-            outputStream.writeObject(skL);
-            bytesPrivKeyL = baos.toByteArray();
+        bytesPrivKeyL = skL.toByteArray();
 
-            baos = new ByteArrayOutputStream();
-            outputStream = new ObjectOutputStream(baos);
-            outputStream.writeObject(skM);
-            bytesPrivKeyM = baos.toByteArray();
-        } catch (IOException e) {
-            System.err.println("");
-            System.exit(1);
-        }
+        bytesPrivKeyM = skM.toByteArray();
 
         // Encode the bytes using Base64 encoder
         Base64.Encoder encoder = Base64.getEncoder();

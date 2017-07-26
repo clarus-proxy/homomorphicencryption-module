@@ -5,14 +5,11 @@ import eu.clarussecure.dataoperations.Criteria;
 import eu.clarussecure.dataoperations.DataOperation;
 import eu.clarussecure.dataoperations.DataOperationCommand;
 import eu.clarussecure.dataoperations.DataOperationResult;
-import eu.clarussecure.dataoperations.homomorphic.operators.Select;
 import eu.clarussecure.encryption.paillier.EncryptedInteger;
 import eu.clarussecure.encryption.paillier.KeyPair;
 import eu.clarussecure.encryption.paillier.Paillier;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import eu.clarussecure.encryption.paillier.PublicKey;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -186,15 +183,53 @@ public class HomomorphicModule implements DataOperation{
 
     @Override
     public List<DataOperationCommand> get(String[] attributeNames, Criteria[] criteria) {
+        String dataID;
 
-        // Generate the ORDERED list of the protected attributeNames
+        // First, generate the ORDERED list of the protected attributeNames
         List<String> protectedAttributes = new ArrayList<>();
         Stream.of(attributeNames)
                 .forEach(attributeName -> protectedAttributes.add(this.attributesMapping.get(attributeName)));
-
-        // Third, create the Comman object
-        DataOperationCommand command = new HomomorphicCommand(attributeNames,
-                protectedAttributes.toArray(new String[attributeNames.length]), null, this.attributesMapping, criteria);
+        
+        // Second, determine is there is an HomomrphicCriteria
+        // This procedure will consider THE LAST HomomorphicCriteria found
+        HomomorphicCriteria homoCrit = null;
+        List<Criteria> listCriteria = new ArrayList<>();
+        if(criteria != null){
+            for(Criteria crit : criteria){
+                if(crit instanceof HomomorphicCriteria){
+                    // TODO 
+                    homoCrit = (HomomorphicCriteria) crit;
+                    continue;
+                }
+                listCriteria.add(crit);
+            }
+        }
+        
+        
+        // Third, create the Command object
+        DataOperationCommand command = null;
+        if(homoCrit == null){
+            command = new HomomorphicCommand(attributeNames,
+                    protectedAttributes.toArray(new String[attributeNames.length]), null, this.attributesMapping, criteria);
+        } else {
+            try{
+                // Determine the Public Key of the attribite in the homomorphic operation
+                dataID = this.typesDataIDs.get(this.attributeTypes.get(homoCrit.getAttributeName()));
+                KeyStore ks = KeyStore.getInstance();
+                PublicKey pk = ks.retrieveKey(dataID).getPublic();
+                ks.deleteInstance();
+                // An encrypted zero migh be useful to start computing the sum
+                EncryptedInteger encryptedZero = Paillier.encrypt(pk, BigInteger.ZERO);
+                // Find the protected name of the involved column
+                String protAttribHomoName = this.attributesMapping.get(homoCrit.getAttributeName());
+                // Create the HomomorphicReoteOperationCommand object
+                command = new HomomorphicRemoteOperationCommand(attributeNames, protectedAttributes.toArray(new String[attributeNames.length]), null,
+                        this.attributesMapping, listCriteria.toArray(new Criteria[listCriteria.size()]), homoCrit.getOperator(), protAttribHomoName, pk, encryptedZero);
+            } catch (IOException e){
+                e.printStackTrace();
+                System.exit(1);
+            }
+        }
         List<DataOperationCommand> commands = new ArrayList<>();
         commands.add(command);
         return commands;
@@ -214,32 +249,6 @@ public class HomomorphicModule implements DataOperation{
             Map<String, String> mapAttributes = new HashMap<>();
 
             Base64.Decoder decoder = Base64.getDecoder();
-
-//            // First, parse the selection criteria and prepare the Select instances
-//            Map<String, List<Select>> selectorsSet = new HashMap<>();
-//
-//            if (com.getCriteria() == null) {
-//                // There is no criteria, use the Identity Function
-//                List<Select> selectors = selectorsSet.get("all");
-//                if (selectors == null) {
-//                    selectors = new ArrayList<>();
-//                    selectorsSet.put("all", selectors);
-//                } 
-//                selectors.add(Select.getInstance("id", "")); // No threshold is required for the identity
-//            } else {
-//                // There are criteria. Build the selectors
-//                for (Criteria crit : com.getCriteria()) {
-//                    // Get the selectors of the attribute
-//                    List<Select> selectors = selectorsSet.get(crit.getAttributeName());
-//                    // Create the list of it does not exist
-//                    if (selectors == null) {
-//                        selectors = new ArrayList<>();
-//                        selectorsSet.put(crit.getAttributeName(), selectors);
-//                    }
-//                    // Add the current selector to the list
-//                    selectors.add(Select.getInstance(crit.getOperator(), crit.getValue()));
-//                }
-//            }
 
             // Second, decipher the attribute names
             try {
@@ -263,19 +272,8 @@ public class HomomorphicModule implements DataOperation{
                 // Second, decipher the contents
                 for (int i = 0; i < content.length; i++) {
                     String[] row = new String[plainAttributeNames.length]; // Reconstructed row
-//                    boolean selected = true; // to decide if the row should be included in teh result or not
                     for (int j = 0; j < plainAttributeNames.length; j++) {
                         // We assume the attribute names are in the same order of the content
-//                        // Get the selectors of this attribute
-//                        List<Select> attributeSelectors = selectorsSet.get(plainAttributeNames[j]);
-//                        // if no selectors were found, simply insert the identity
-//                        if (attributeSelectors == null)
-//                            attributeSelectors = new ArrayList<>();
-//                        // Do not forget the filters applied to "all";
-//                        if (selectorsSet.get("all") != null) {
-//                            attributeSelectors.addAll(selectorsSet.get("all"));
-//                        }
-
                         String plainValue;
                         // Get the proteciton type of this attribute
                         String protection = this.typesProtection.get(this.attributeTypes.get(plainAttributeNames[j]));
@@ -289,35 +287,21 @@ public class HomomorphicModule implements DataOperation{
                             KeyPair key = this.keyStore.retrieveKey(dataID);
 
                             // Create the BigInteger and EncryptedInteger objects containing the data
-                            // FIXME - This line decode the content using the platform charset. THIS COULD POSE A PROBLEM
-                            byte[] bytesEnc = content[i][j].getBytes();
-                            ObjectInputStream inputStream = new ObjectInputStream(new ByteArrayInputStream(decoder.decode(bytesEnc)));
-                            BigInteger encContent = (BigInteger) inputStream.readObject();
+                            // Since this is a protected attribute, it is B64-encoded
+                            BigInteger encContent = new BigInteger(decoder.decode(content[i][j]));
                             EncryptedInteger data = new EncryptedInteger(encContent, key.getPublic());
 
                             // Decrypt the value and obtain the bytes representation
                             BigInteger decrypted = Paillier.decrypt(key.getSecret(), data);
                             
-                            // FIXME - This line decode the string using the platform's default charset. THIS COULD POSE A PROBLEM
-                            plainValue = new String(decrypted.toByteArray());
+                            // Recover the decrypted data. It is assumed the value fits in a long
+                            plainValue = decrypted.longValue() + "";
                         } else {
                             // Simply copy the content
                             plainValue = content[i][j];
                         }
-
-//                        // Evaluate each attribute selector
-//                        for (Select selector : attributeSelectors) {
-//                            // Decide if the row should be selected or not
-//                            // NOTE - This line gives the "and" semantics to multiple criteria
-//                            selected = selected && selector.select(plainValue);
-//                        }
                         row[j] = plainValue;
                     }
-                    // Add the column only if all the selectors have passed
-//                    if (selected) {
-//                        rowCount++;
-//                        plainContents.add(row);
-//                    }
                     plainContents.add(row);
                     rowCount++;
                 }
@@ -341,8 +325,6 @@ public class HomomorphicModule implements DataOperation{
         Base64.Encoder encoder = Base64.getEncoder();
 
         try {
-            byte[] bytesContentEnc;
-
             // Second, obfuscate the contents
             for (int i = 0; i < contents.length; i++) {
                 for (int j = 0; j < attributeNames.length; j++) {
@@ -357,19 +339,18 @@ public class HomomorphicModule implements DataOperation{
                         KeyPair key = this.keyStore.retrieveKey(dataID);
                         
                         // Create the BigInteger object
-                        // FIXME - This line decode the string using the platform's default charset. THIS COULD POSE A PROBLEM
-                        BigInteger bigIntValue = new BigInteger(contents[i][j].getBytes());
+                        // In this part we will assume the homomorphic attributes ARE integers
+                        // This can be assumed since homomophic operations are guaranteed only on Interger
+                        // Parse the value.
+                        long contentValue = (long) Double.parseDouble(contents[i][j]);
+                        BigInteger bigIntValue = BigInteger.valueOf(contentValue);
                         
                         // Encrypt the value and obtain the bytes representation
                         EncryptedInteger encrypted = Paillier.encrypt(key.getPublic(), bigIntValue);
                         BigInteger encValue = encrypted.getValue();
-                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                        ObjectOutputStream outputStream = new ObjectOutputStream(baos);
-                        outputStream.writeObject(encValue);
-                        bytesContentEnc = baos.toByteArray();
                         
                         // Encode the bytes using Base64
-                        encContents[i][j] = encoder.encodeToString(bytesContentEnc);
+                        encContents[i][j] = encoder.encodeToString(encValue.toByteArray());
                     } else {
                         // Simply copy the content
                         encContents[i][j] = contents[i][j];
