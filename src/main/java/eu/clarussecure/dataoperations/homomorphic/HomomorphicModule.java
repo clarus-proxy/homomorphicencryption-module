@@ -12,10 +12,15 @@ import eu.clarussecure.encryption.paillier.PublicKey;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.w3c.dom.Document;
@@ -25,22 +30,9 @@ import org.w3c.dom.NodeList;
 
 public class HomomorphicModule implements DataOperation{
     
-    /*
-    IDEA Para Serializar BigInteger:
-    
-    BigInteger big = new BigInteger("515377520732011331036461129765621272702107522001");
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    ObjectOutputStream outputStream = new ObjectOutputStream(baos);
-    outputStream.writeObject(big);
-    byte[] rawBytes = baos.toByteArray();
-
-    ObjectInputStream inputStream = new ObjectInputStream(new ByteArrayInputStream(rawBytes));
-    BigInteger bigReadBack = (BigInteger) inputStream.readObject();
-    
-    Luego encodear los bytes en Base64 para obtener el string a devolver
-
-    assertThat(big).isEqualTo(bigReadBack);
-    */
+    // This string is a flag to identify attributes that are not covered in the security policy
+    // It is used actively by the HEAD function.
+    protected static final String TO_BE_FILTERED_FLAG = "NOT_COVERED";
     
     // Data extracted from the security policy
     protected Map<String, String> attributeTypes = new HashMap<>(); // qualifName->type
@@ -54,9 +46,6 @@ public class HomomorphicModule implements DataOperation{
     // Mapping to determine where to store each qualified name
     protected int cloudsNumber;
     protected Map<String, Integer> attributeClouds = new HashMap<>();
-
-    // Map between plain and encrypted attribute Names
-    protected Map<String, String> attributesMapping = new HashMap<>();
     
     public HomomorphicModule(Document policy){
         // TODO - Extract the number of "endpoints" (aka Clouds) from the policy.
@@ -65,7 +54,6 @@ public class HomomorphicModule implements DataOperation{
 
         // First, get the types of each attribute and build the map
         NodeList nodes = policy.getElementsByTagName("attribute");
-        List<String> attributeNames = new ArrayList<>();
         for (int i = 0; i < nodes.getLength(); i++) {
             // Get the node and the list of its attributes
             Node node = nodes.item(i);
@@ -75,10 +63,9 @@ public class HomomorphicModule implements DataOperation{
             String attributeType = attributes.getNamedItem("attribute_type").getNodeValue();
             // Add the information to the map
             this.attributeTypes.put(attributeName, attributeType);
-            // Store the attribute names to fully qualify them
-            attributeNames.add(attributeName);
         }
 
+        /*
         // Fully qualify the attribute Names
         this.qualifiedAttributes = AttributeNamesUtilities.fullyQualified(attributeNames);
 
@@ -90,6 +77,7 @@ public class HomomorphicModule implements DataOperation{
                         key -> this.qualifiedAttributes.stream().filter(k -> k.endsWith(key)).findAny().orElse(null),
                         // The new value is the same of the original mapping
                         key -> this.attributeTypes.get(key)));
+        */
 
         // Second , get the protection of each attribute type and their idKeys
         nodes = policy.getElementsByTagName("attribute_type");
@@ -130,49 +118,7 @@ public class HomomorphicModule implements DataOperation{
          *   cloud="1">
          */
         // At the moment, the mapping will be done assuming the encrypted attributes go to the first cloud
-        this.qualifiedAttributes.forEach(qualifiedName -> this.attributeClouds.put(qualifiedName, 0));
-
-        // FIXME - Change the encryption of the mapped values
-        // Generate the map between qualified Attributes and protected Attributes Names
-        this.attributesMapping = this.qualifiedAttributes.stream() // Get all the qualified Names
-                .collect(Collectors.toMap( // Reduce them into a new Map
-                        key -> key, // Use the same qualified Attribute Name as key
-                        key -> { // Generate the mapped values: the "encrypted" ones
-                            String attribEnc = "";
-                            try {
-                                // Obtain the dataID
-                                String dataID = this.typesDataIDs.get(this.attributeTypes.get(key));
-
-                                // Encrypt the column name only if the policy says so
-                                // Get the prpteciton type of this attribute
-                                String protection = this.typesProtection.get(this.attributeTypes.get(key));
-                                // Encrypt only if the protection type is "encryption" or "simple"
-                                if (protection.equals("homomorphic")) {
-                                    attribEnc = key + "_homoenc";
-                                     /* This is the encryption of the mapped values
-                                    byte[] bytesAttribEnc;
-
-                                    // Initialize the Secret Key and the Init Vector of the Cipher
-                                    IvParameterSpec iv = new IvParameterSpec(this.keyStore.retrieveInitVector(dataID));
-                                    SecretKey sk = this.keyStore.retrieveKey(dataID);
-
-                                    Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-                                    cipher.init(Cipher.ENCRYPT_MODE, sk, iv);
-
-                                    // NOTE - To correctly encrypt, First cipher, THEN Base64 encode
-                                    bytesAttribEnc = cipher.doFinal(key.getBytes());
-                                    attribEnc = Base64.getEncoder().encodeToString(bytesAttribEnc);
-                                     */
-                                } else {
-                                    // Otherwise, just let the attribute name pass in plain text
-                                    attribEnc = key;
-                                }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                System.exit(1);
-                            }
-                            return attribEnc;
-                        }));
+        //this.qualifiedAttributes.forEach(qualifiedName -> this.attributeClouds.put(qualifiedName, 0));
     }
     
     @Override
@@ -183,18 +129,26 @@ public class HomomorphicModule implements DataOperation{
 
     @Override
     public List<DataOperationCommand> get(String[] attributeNames, Criteria[] criteria) {
-        String dataID;
+        // IMPORTANT REMARK:
+        // Since the encryption is not homomorphic, all the data must be retrieved
+        // The selection of the rows will be done in the outboud GET, after decrypting the data
+        
+        Map<String,String> attributesMapping = this.buildAttributesMapping(attributeNames, notCoveredAttribute -> notCoveredAttribute, unprotectedAttrib -> unprotectedAttrib);
+
+        Base64.Encoder encoder = Base64.getEncoder();
 
         // First, generate the ORDERED list of the protected attributeNames
         List<String> protectedAttributes = new ArrayList<>();
         Stream.of(attributeNames)
-                .forEach(attributeName -> protectedAttributes.add(this.attributesMapping.get(attributeName)));
+                .forEach(attributeName -> protectedAttributes.add(attributesMapping.get(attributeName)));
         
         // Second, determine is there is an HomomrphicCriteria
         // This procedure will consider THE LAST HomomorphicCriteria found
         HomomorphicCriteria homoCrit = null;
         List<Criteria> listCriteria = new ArrayList<>();
+        
         if(criteria != null){
+            // Find the HomomorphicCriteria
             for(Criteria crit : criteria){
                 if(crit instanceof HomomorphicCriteria){
                     // TODO 
@@ -203,6 +157,68 @@ public class HomomorphicModule implements DataOperation{
                 }
                 listCriteria.add(crit);
             }
+            listCriteria.forEach(criterion -> {
+                // Determine if the column is encrypted of not
+                String protectedAttribute = attributesMapping.get(criterion.getAttributeName());
+                if (!criterion.getAttributeName().equals(protectedAttribute)) {
+                    // The protected and unprotected Attribute Names do not match
+                    // This implies the criteria operates over an encrypted column
+                    // First, modify the operator to use a String comparator
+                    criterion.setOperator("s=");
+                    // Second, encrypt the treshold
+                    String protectedThreshold = "";
+                    try {
+                        // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
+                        String matchedProtection = null;
+                        for(String protectionRule : this.attributeTypes.keySet()){
+                            Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
+                            if(p.matcher(criterion.getAttributeName()).matches()){
+                                matchedProtection = protectionRule;
+                            }
+                        }
+
+                        // If none matches, ignore this attribute => it is not convered by the Policy
+                        if(matchedProtection == null)
+                            return;
+                        
+                        // FIXME - This is not the Attribute Name of the criteria but the token it matches
+                        // Obtain the dataID
+                        String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
+
+                        // Get the prpteciton type of this attribute
+                        String protection = this.typesProtection
+                                .get(this.attributeTypes.get(matchedProtection));
+                        // Encrypt only if the protection type is "encryption" or "simple"
+                        if (protection.equals("homomorphic")) {
+                            // Get the KeyPair
+                            KeyPair key = this.keyStore.retrieveKey(dataID);
+
+                            // Create the BigInteger object
+                            // In this part we will assume the homomorphic attributes ARE integers
+                            // This can be assumed since homomophic operations are guaranteed only on Integer
+                            // Parse the value.
+                            long contentValue = (long) Double.parseDouble(criterion.getValue());
+                            BigInteger bigIntValue = BigInteger.valueOf(contentValue);
+
+                            // Encrypt the value and obtain the bytes representation
+                            EncryptedInteger encrypted = Paillier.encrypt(key.getPublic(), bigIntValue);
+                            BigInteger encValue = encrypted.getValue();
+
+                            // Encode the bytes using Base64
+                            protectedThreshold = encoder.encodeToString(encValue.toByteArray());
+                        } else {
+                            // Otherwise, just let the attribute name pass in plain text
+                            protectedThreshold = criterion.getAttributeName();
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        System.exit(1);
+                    }
+                    criterion.setValue(protectedThreshold);
+                    // Third, substitute the involved attribute name with its protected one
+                    criterion.setAttributeName(attributesMapping.get(criterion.getAttributeName()));
+                }
+            });
         }
         
         
@@ -210,10 +226,12 @@ public class HomomorphicModule implements DataOperation{
         DataOperationCommand command = null;
         if(homoCrit == null){
             command = new HomomorphicCommand(attributeNames,
-                    protectedAttributes.toArray(new String[attributeNames.length]), null, this.attributesMapping, criteria);
+                    protectedAttributes.toArray(new String[attributeNames.length]), null, attributesMapping, criteria);
         } else {
             try{
-                // Determine the Public Key of the attribite in the homomorphic operation
+                String dataID;
+                // Determine the Public Key of the attribute in the homomorphic operation
+                // FIXME - This is not the attribute name but the TOKEN it matches
                 dataID = this.typesDataIDs.get(this.attributeTypes.get(homoCrit.getAttributeName()));
                 KeyStore ks = KeyStore.getInstance();
                 PublicKey pk = ks.retrieveKey(dataID).getPublic();
@@ -221,10 +239,11 @@ public class HomomorphicModule implements DataOperation{
                 // An encrypted zero migh be useful to start computing the sum
                 EncryptedInteger encryptedZero = Paillier.encrypt(pk, BigInteger.ZERO);
                 // Find the protected name of the involved column
-                String protAttribHomoName = this.attributesMapping.get(homoCrit.getAttributeName());
+                // FIXME - This is not the attribute name but the TOKEN it matches.
+                String protAttribHomoName = attributesMapping.get(homoCrit.getAttributeName());
                 // Create the HomomorphicReoteOperationCommand object
                 command = new HomomorphicRemoteOperationCommand(attributeNames, protectedAttributes.toArray(new String[attributeNames.length]), null,
-                        this.attributesMapping, listCriteria.toArray(new Criteria[listCriteria.size()]), homoCrit.getOperator(), protAttribHomoName, pk, encryptedZero);
+                        attributesMapping, listCriteria.toArray(new Criteria[listCriteria.size()]), homoCrit.getOperator(), protAttribHomoName, pk, encryptedZero);
             } catch (IOException e){
                 e.printStackTrace();
                 System.exit(1);
@@ -273,15 +292,28 @@ public class HomomorphicModule implements DataOperation{
                 for (int i = 0; i < content.length; i++) {
                     String[] row = new String[plainAttributeNames.length]; // Reconstructed row
                     for (int j = 0; j < plainAttributeNames.length; j++) {
+                        // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
+                        String matchedProtection = null;
+                        for(String protectionRule : this.attributeTypes.keySet()){
+                            Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
+                            if(p.matcher(plainAttributeNames[j]).matches()){
+                                matchedProtection = protectionRule;
+                            }
+                        }
+
+                        // If none matches, ignore this attribute => it is not convered by the Policy
+                        if(matchedProtection == null)
+                            continue;
+                        
                         // We assume the attribute names are in the same order of the content
                         String plainValue;
                         // Get the proteciton type of this attribute
-                        String protection = this.typesProtection.get(this.attributeTypes.get(plainAttributeNames[j]));
+                        String protection = this.typesProtection.get(this.attributeTypes.get(matchedProtection));
 
                         // Decrypt only if the protection type is "homomorphic"
                         if (protection.equals("homomorphic")) {
                             // Get the dataID
-                            String dataID = this.typesDataIDs.get(this.attributeTypes.get(plainAttributeNames[j]));
+                            String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
 
                             // Get the KeyPair
                             KeyPair key = this.keyStore.retrieveKey(dataID);
@@ -323,17 +355,35 @@ public class HomomorphicModule implements DataOperation{
         String[][] encContents = new String[contents.length][attributeNames.length];
 
         Base64.Encoder encoder = Base64.getEncoder();
+        
+        // Create the mapping between the given Attribute Names and the protected ones.
+        // This method uses the "buildAttributesMapping" function, letting the not covered and unprotected attributes pass
+        // (i.e. not marking them since this mapping WILL NOT be filtered later)
+        Map<String, String> attributesMapping = this.buildAttributesMapping(attributeNames, notCoveredAttrib -> notCoveredAttrib, unprotectedAttrib -> unprotectedAttrib);
 
         try {
             // Second, obfuscate the contents
             for (int i = 0; i < contents.length; i++) {
                 for (int j = 0; j < attributeNames.length; j++) {
                     // Get the prpteciton type of this attribute
-                    String protection = typesProtection.get(this.attributeTypes.get(attributeNames[j]));
+                    // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
+                    String matchedProtection = null;
+                    for(String protectionRule : this.attributeTypes.keySet()){
+                        Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
+                        if(p.matcher(attributeNames[j]).matches()){
+                            matchedProtection = protectionRule;
+                        }
+                    }
+
+                    // If none matches, ignore this attribute => it is not convered by the Policy
+                    if(matchedProtection == null)
+                        continue;
+                    
+                    String protection = typesProtection.get(this.attributeTypes.get(matchedProtection));
                     // Encrypt only if the protection type is "homomorphic"
                     if (protection.equals("homomorphic")) {
                         // Get the dataID
-                        String dataID = this.typesDataIDs.get(this.attributeTypes.get(attributeNames[j]));
+                        String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
 
                         // Get the KeyPair
                         KeyPair key = this.keyStore.retrieveKey(dataID);
@@ -365,11 +415,11 @@ public class HomomorphicModule implements DataOperation{
         // Generate the ORDERED list of the protected attributeNames
         List<String> protectedAttributes = new ArrayList<>();
         Stream.of(attributeNames)
-                .forEach(attributeName -> protectedAttributes.add(this.attributesMapping.get(attributeName)));
+                .forEach(attributeName -> protectedAttributes.add(attributesMapping.get(attributeName)));
 
         // Encapsulate the output
         DataOperationCommand command = new HomomorphicCommand(attributeNames,
-                protectedAttributes.toArray(new String[attributeNames.length]), encContents, this.attributesMapping,
+                protectedAttributes.toArray(new String[attributeNames.length]), encContents, attributesMapping,
                 null);
         List<DataOperationCommand> commands = new ArrayList<>();
         commands.add(command);
@@ -388,11 +438,104 @@ public class HomomorphicModule implements DataOperation{
 
     @Override
     public List<Map<String, String>> head(String[] attributeNames) {
+        // First, resolve the wildcards according to the policy definitions
+        String[] resolvedAttributes = AttributeNamesUtilities.resolveOperationAttributeNames(attributeNames, new ArrayList<>(this.attributeTypes.keySet()));
+        // Remove duplicates here, since the resolved attributes will be the keys of the mapping
+        // Let's leave the HashSet class do the magic :)
+        Set<String> filteredAttributes = new HashSet<>(Arrays.asList(resolvedAttributes));
+        // Then build the Attributes Mapping AND filter the ones not concerned
+        Map<String, String> attribsMapping = filterMapingEntries(this.buildAttributesMapping(filteredAttributes.toArray(new String[filteredAttributes.size()]),
+                attrib -> attrib, // Not covered Attributes will NOT be marked for later filtering
+                attrib -> HomomorphicModule.TO_BE_FILTERED_FLAG)); // Not protected Attributes will be marked for later filtering
         List<Map<String, String>> aux = new ArrayList<>();
         for (int i = 0; i < this.cloudsNumber; i++) {
             // Insert the Mapping in the first place
-            aux.add(i == 0 ? this.attributesMapping : new HashMap<>());
+            aux.add(i == 0 ? attribsMapping : new HashMap<>());
         }
         return aux;
+    }
+    
+    private Map<String,String> filterMapingEntries(Map<String,String> mapping){
+        // This function will analyze the given mapping (built using buildAttributesMapping)
+        // and remove the entries that are not comprised in the seciryt policy.
+        // Get the Entries set
+        Set<Map.Entry<String,String>> entries = mapping.entrySet();
+        Set<Map.Entry<String,String>> newEntries = new HashSet<>();
+        // Select which entries will remain in the map.
+        entries.stream().forEach(entry -> {
+            String value = entry.getValue();
+            if(!value.equals(HomomorphicModule.TO_BE_FILTERED_FLAG)){
+                // if the value WAS NOT marked as "not covered" the entry SHOULD be kept.
+                newEntries.add(entry);
+            }
+        });
+        // Reconstruct the final HashMap
+        return newEntries.stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+    
+    private Map<String,String> buildAttributesMapping(String[] attributes, Function<String, String> notCoveredTransform, Function<String,String> notProtected){
+        // NOTE: The "notCoveredTransform" function will say what to do with the attributes non-covered by the security policy.
+        // NOTE: The "notProtected" function will say what to do with the attributes covered by the security policy but not using this module
+        // FIXME - Create the mapping between the given attribute names and their protected names
+        // This mapping must be done considering the list of attributes to protect specified in the security policy
+        // Generate the map between qualified Attributes and protected Attributes Names
+        Map<String,String> mapping;
+        
+        mapping = Arrays.asList(attributes).stream() // Get all the qualified Names
+                .collect(Collectors.toMap( // Reduce them into a new Map
+                        originalQualifAttribName -> originalQualifAttribName, // Use the same qualified Attribute Name as key
+                        originalQualifAttribName -> { // Generate the mapped values: the "encrypted" ones
+                            String attribEnc = "";
+                            try {
+                                // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
+                                String matchedProtection = null;
+                                for(String protectionRule : this.attributeTypes.keySet()){
+                                    Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
+                                    if(p.matcher(originalQualifAttribName).matches()){
+                                        matchedProtection = protectionRule;
+                                    }
+                                }
+                                
+                                // If none matches, ignore this attribute => it is not convered by the Policy
+                                // To filter these entries later, we will use a "special" string.
+                                if(matchedProtection == null)
+                                    return notCoveredTransform.apply(originalQualifAttribName);
+                                
+                                // Obtain the dataID
+                                String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
+
+                                // Encrypt the column name only if the policy says so
+                                // Get the prpteciton type of this attribute
+                                String protection = this.typesProtection.get(this.attributeTypes.get(matchedProtection));
+                                // Encrypt only if the protection type is "encryption" or "simple"
+                                if (protection.equals("homomorphic")) {
+                                    /*
+                                    // The name of the attribute CAN be completely encrypted. Use this code to do so
+                                    byte[] bytesAttribEnc;
+
+                                    // Initialize the Secret Key and the Init Vector of the Cipher
+                                    IvParameterSpec iv = new IvParameterSpec(this.keyStore.retrieveInitVector(dataID));
+                                    SecretKey sk = this.keyStore.retrieveKey(dataID);
+
+                                    Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+                                    cipher.init(Cipher.ENCRYPT_MODE, sk, iv);
+
+                                    // NOTE - To correctly encrypt, First cipher, THEN Base64 encode
+                                    bytesAttribEnc = cipher.doFinal(originalQualifAttribName.getBytes());
+                                    attribEnc = Base64.getEncoder().encodeToString(bytesAttribEnc);
+                                    */
+                                    attribEnc = originalQualifAttribName + "_homoenc";
+                                } else {
+                                    // Otherwise, just let the attribute name pass in plain text
+                                    // In this case, the attribute was identified but it is not protected.
+                                    attribEnc = notProtected.apply(originalQualifAttribName);
+                                }
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                                System.exit(1);
+                            }
+                            return attribEnc;
+                        }));
+        return mapping;
     }
 }

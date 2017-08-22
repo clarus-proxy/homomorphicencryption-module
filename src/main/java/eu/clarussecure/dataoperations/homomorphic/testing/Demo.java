@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -53,7 +54,9 @@ public class Demo {
 
         // Instantiate the Clarus Encryption Module
         DataOperation encryption = new HomomorphicModule(policy);
-        //DataOperation encryption = new EncryptionModule(null);
+
+        // Test the head function
+        testHeadFunction(encryption);
 
         // First "POST" to the cloud
         List<DataOperationCommand> commandsPost = encryption.post(qualifiedAttribs, data);
@@ -222,7 +225,7 @@ public class Demo {
         // Show the content of the response, using an auxiliary cloud
         aux = new HomomorphicCloud(response.getDecryptedAttributeNames());
         aux.addRows(response.getDecryptedContent());
-        System.out.println("****************DECRYPTED-6*****************");
+        System.out.println("****************DECRYPTED-5*****************");
         System.out.print(aux.decodeAndPrintCloudContents());
         System.out.println("********************************************");
 
@@ -257,6 +260,48 @@ public class Demo {
         System.out.print(aux.decodeAndPrintCloudContents());
         System.out.println("********************************************");
 
+    }
+
+    private static void testHeadFunction(DataOperation module) {
+        // This is a test case for the head function
+        // This is the list of attributes in the security policy
+        // Marked with * are the ones protected
+        // meuseDB/meuse/gid
+        //*meuseDB/meuse/cadmium
+        //*meuseDB/meuse/copper
+        //*meuseDB/meuse/lead
+        //*meuseDB/meuse/zinc
+        // meuseDB/meuse/elev
+        // meuseDB/meuse/dist
+        // meuseDB/meuse/om
+        // meuseDB/meuse/ffreq
+        // meuseDB/meuse/soil
+        // meuseDB/meuse/lime
+        // meuseDB/meuse/landuse
+        // meuseDB/meuse/dist.m
+        // meuseDB/meuse/geom
+
+        String[][] operationAttributes = { { "*/*/*" }, // ALL the ENCRYPTED attributes
+                { "meuseDB/meuse2/*" }, // A non-matching wildcard
+                { "*/meuse2/*" }, // Another non-matching wildcard
+                {}, // Nothing
+                { "meuseDB/meuse/copper" }, // A single encrypted attribute
+                { "meuseDB/meuse/zinc", "meuseDB/meuse/copper" }, // two encrypted attributes
+                { "meuseDB/meuse/*", "meuseDB/meuse/copper" }, // ALL and an encrypted column
+                { "meuseDB/meuse/*", "meuseDB/meuse/soil" }, // ALL and a non-ecrypted column
+                { "meuseDB/meuse/*", "meuseDB/meuse/non_existing" }, // ALL and a non existing column
+                { "meuseDB/meuse/om", "meuseDB/meuse/ffreq" } // only non-encrypted columns
+        };
+
+        System.out.println("***************** HEAD FUNCTION TEST *****************");
+
+        Stream.of(operationAttributes).forEach(request -> {
+            System.out.println(module.head(request).get(0).toString());
+        });
+
+        System.out.println("***************** ****************** *****************");
+
+        //System.exit(1);
     }
 
     private static String[] readColumnNames(String filename) throws IOException {
