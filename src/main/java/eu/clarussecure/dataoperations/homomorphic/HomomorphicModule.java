@@ -207,8 +207,8 @@ public class HomomorphicModule implements DataOperation{
                             // Encode the bytes using Base64
                             protectedThreshold = encoder.encodeToString(encValue.toByteArray());
                         } else {
-                            // Otherwise, just let the attribute name pass in plain text
-                            protectedThreshold = criterion.getAttributeName();
+                            // Otherwise, just let the valut to compare pass in plain text
+                            protectedThreshold = criterion.getValue();
                         }
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -428,12 +428,14 @@ public class HomomorphicModule implements DataOperation{
 
     @Override
     public List<DataOperationCommand> put(String[] attributeNames, Criteria[] criteria, String[][] contents) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        // Put operation is not supported in this module
+        return null;
     }
 
     @Override
     public List<DataOperationCommand> delete(String[] attributeNames, Criteria[] criteria) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        // Delete operation is not supported in this module
+        return null;
     }
 
     @Override
