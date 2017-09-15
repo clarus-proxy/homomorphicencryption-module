@@ -29,7 +29,7 @@ public class KeyStore {
         // Correctly configure the log level
         Logger mongoLogger = Logger.getLogger("org.mongodb.driver");
         mongoLogger.setLevel(Level.SEVERE);
-        // Create a new client connecting to "localhost" on port 
+        // Create a new client connecting to "localhost" on port
         this.mongoClient = new MongoClient("localhost", 27017);
 
         // Get the database (will be created if not present)

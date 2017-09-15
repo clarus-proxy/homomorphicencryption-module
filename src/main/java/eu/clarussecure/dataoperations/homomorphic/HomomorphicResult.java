@@ -1,21 +1,21 @@
 package eu.clarussecure.dataoperations.homomorphic;
 
-import eu.clarussecure.dataoperations.DataOperationResult;
+import eu.clarussecure.dataoperations.DataOperationResponse;
+import java.util.Random;
 
-public class HomomorphicResult extends DataOperationResult {
-    private String[][] decryptedContent;
-    private String[] decryptedAttributeNames;
+public class HomomorphicResult extends DataOperationResponse {
 
     public HomomorphicResult(String[] attributeNames, String[][] content) {
-        this.decryptedAttributeNames = attributeNames;
-        this.decryptedContent = content;
+        super.id = new Random().nextInt();
+        super.attributeNames = attributeNames;
+        super.contents = content;
     }
 
     public String[][] getDecryptedContent() {
-        return this.decryptedContent;
+        return this.contents;
     }
 
     public String[] getDecryptedAttributeNames() {
-        return this.decryptedAttributeNames;
+        return this.attributeNames;
     }
 }
