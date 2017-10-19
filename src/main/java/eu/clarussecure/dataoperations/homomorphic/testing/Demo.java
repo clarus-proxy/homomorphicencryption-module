@@ -37,6 +37,17 @@ public class Demo {
                 .toArray(new String[attributes.length]);
         String[][] data = readData(DATA_FILENAME);
 
+        // Parse the XML security policy
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        DocumentBuilder db = dbf.newDocumentBuilder();
+        Document policy = db.parse(new File(POLICY_FILENAME));
+
+        // Instantiate the Clarus Encryption Module
+        DataOperation encryption = new HomomorphicModule(policy);
+
+        // Uncomment this line to perform performance tests
+        //performanceTest(encryption, qualifiedAttribs, data);
+
         // Initialize the "cloud" to execute the commands
         HomomorphicCloud cloud = null;
         HomomorphicCloud untouchedCloud = new HomomorphicCloud(attributes);
@@ -46,14 +57,6 @@ public class Demo {
         System.out.println("*****************ORIGINAL*******************");
         System.out.print(untouchedCloud.simplePrintCloudContents());
         System.out.println("********************************************");
-
-        // Parse the XML security policy
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        DocumentBuilder db = dbf.newDocumentBuilder();
-        Document policy = db.parse(new File(POLICY_FILENAME));
-
-        // Instantiate the Clarus Encryption Module
-        DataOperation encryption = new HomomorphicModule(policy);
 
         // Test the head function
         testHeadFunction(encryption);
@@ -260,6 +263,74 @@ public class Demo {
         System.out.print(aux.decodeAndPrintCloudContents());
         System.out.println("********************************************");
 
+    }
+
+    public static void performanceTest(DataOperation encryption, String[] qualifiedAttribs, String[][] data) {
+        long ti, tf;
+
+        // Initialize the "cloud" to execute the commands
+        HomomorphicCloud cloud = null;
+
+        // First "POST" to the cloud
+        ti = System.currentTimeMillis();
+        List<DataOperationCommand> commandsPost = encryption.post(qualifiedAttribs, data);
+        tf = System.currentTimeMillis();
+
+        // Create a cloud object with the protected Attribute Names
+        cloud = new HomomorphicCloud(commandsPost.get(0).getProtectedAttributeNames());
+
+        // Query the cloud
+        for (DataOperationCommand command : commandsPost) {
+            cloud.addRows(command.getProtectedContents());
+        }
+
+        System.out.println("POST time = " + (tf - ti));
+
+        List<DataOperationCommand> commandsGet = null;
+        List<String[][]> results = null;
+        List<DataOperationResult> r = null;
+        // Retrieve the data from the cloud
+        // CASE 1: no criteria = all the data
+        commandsGet = encryption.get(qualifiedAttribs, null);
+
+        // Query the cloud
+        results = new ArrayList<>();
+        for (DataOperationCommand command : commandsGet) {
+            // Get all the columns from the database
+            String[][] partialResult = cloud.getRows(command.getProtectedAttributeNames(), command.getCriteria());
+            results.add(partialResult);
+        }
+
+        // Recover the original values
+        ti = System.currentTimeMillis();
+        r = encryption.get(commandsGet, results);
+        tf = System.currentTimeMillis();
+
+        System.out.println("GET time = " + (tf - ti));
+
+        System.exit(0);
+
+        // CASE 5: Simple homomorphic Operation
+        // NOTE - At the moment, using multiple criteria has an "and" semantics
+        //crit = new Criteria("meuseDB/meuse/gid", ">=", "20"); // gid is not encrypted.
+        HomomorphicCriteria crit3 = HomomorphicCriteria.getInstance("+", "meuseDB/meuse/copper");
+        commandsGet = encryption.get(qualifiedAttribs, new Criteria[] { crit3 });
+
+        // Query the cloud
+        results = new ArrayList<>();
+        HomomorphicRemoteOperationCommand homoCom = null;
+        for (DataOperationCommand command : commandsGet) {
+            // Get all the columns from the database
+            if (command instanceof HomomorphicRemoteOperationCommand) {
+                String[][] partialResult = cloud.performHomomorphicComputation(command.getProtectedAttributeNames(),
+                        command.getCriteria(), (HomomorphicRemoteOperationCommand) command);
+                homoCom = (HomomorphicRemoteOperationCommand) command;
+                results.add(partialResult);
+            }
+        }
+
+        // Recover the original values
+        r = encryption.get(commandsGet, results);
     }
 
     private static void testHeadFunction(DataOperation module) {

@@ -159,18 +159,18 @@ public class KeyStore {
                 .wasAcknowledged();
         return ack;
     }
-    
-    private int getKeyLength(){
+
+    private int getKeyLength() {
         // This method should retrieve the key length (in bits) from the DB
         MongoCursor<Document> cursor = this.keystoreCollection.find(eq("conf", "homomorphic-keylength")).iterator();
-        
-        int keyLength = 1024; // Default value is 1024 bits
-        while(cursor.hasNext()){
-            keyLength = cursor.next().getInteger("keylength");
+
+        int keyLength = 2048; // Default value is 2048 bits
+        while (cursor.hasNext()) {
+            keyLength = cursor.next().getDouble("keylength").intValue();
         }
         return keyLength;
     }
-    
+
     private void processConfigurationFile() throws RuntimeException {
         // Open the file in read-only mode. This will avoid any permission problem
         try {

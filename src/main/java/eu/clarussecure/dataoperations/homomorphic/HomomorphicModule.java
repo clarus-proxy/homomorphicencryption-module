@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.w3c.dom.Document;
 import org.w3c.dom.NamedNodeMap;
@@ -321,7 +322,6 @@ public class HomomorphicModule implements DataOperation{
     public List<DataOperationResult> get(List<DataOperationCommand> promise, List<String[][]> contents) {
         // Iterate over all the given commands
         List<DataOperationResult> commands = new ArrayList<>();
-        int rowCount = 0;
         for (int n = 0; n < promise.size(); n++) {
             DataOperationCommand com = promise.get(n);
             String[][] content = contents.get(n);
@@ -333,25 +333,27 @@ public class HomomorphicModule implements DataOperation{
             Base64.Decoder decoder = Base64.getDecoder();
 
             // Second, decipher the attribute names
-            try {
-                // First, decipher the attribute Names and map them to the origial ones
-                for (int i = 0; i < com.getProtectedAttributeNames().length; i++) {
+            // First, decipher the attribute Names and map them to the origial ones
+            for (int i = 0; i < com.getProtectedAttributeNames().length; i++) {
 
-                    if (com.getProtectedAttributeNames()[i].endsWith("_homoenc")) {
-                        // "Decrypting" the attribute names is as simple as removing the "_homoenc" suffix
-                        int suffIndex = com.getProtectedAttributeNames()[i].indexOf("_homoenc");
-                        
-                        plainAttributeNames[i] = com.getProtectedAttributeNames()[i].substring(0, suffIndex);
-                    } else {
-                        plainAttributeNames[i] = com.getProtectedAttributeNames()[i];
-                    }
-                    mapAttributes.put(com.getProtectedAttributeNames()[i], plainAttributeNames[i]);
+                if (com.getProtectedAttributeNames()[i].endsWith("_homoenc")) {
+                    // "Decrypting" the attribute names is as simple as removing the "_homoenc" suffix
+                    int suffIndex = com.getProtectedAttributeNames()[i].indexOf("_homoenc");
+
+                    plainAttributeNames[i] = com.getProtectedAttributeNames()[i].substring(0, suffIndex);
+                } else {
+                    plainAttributeNames[i] = com.getProtectedAttributeNames()[i];
                 }
+                mapAttributes.put(com.getProtectedAttributeNames()[i], plainAttributeNames[i]);
+            }
 
-                // Second, decipher the contents
-                for (int i = 0; i < content.length; i++) {
-                    String[] row = new String[plainAttributeNames.length]; // Reconstructed row
-                    for (int j = 0; j < plainAttributeNames.length; j++) {
+            // Second, decipher the contents
+            IntStream.range(0, content.length).parallel().forEach(i ->{
+            //for (int i = 0; i < content.length; i++) {
+                String[] row = new String[plainAttributeNames.length]; // Reconstructed row
+                IntStream.range(0, plainAttributeNames.length).parallel().forEach(j -> {
+                //for (int j = 0; j < plainAttributeNames.length; j++) {
+                    try{
                         // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
                         String matchedProtection = null;
                         for (String protectionRule : this.attributeTypes.keySet()) {
@@ -363,8 +365,8 @@ public class HomomorphicModule implements DataOperation{
 
                         // If none matches, ignore this attribute => it is not convered by the Policy
                         if(matchedProtection == null)
-                            continue;
-                        
+                            return;
+
                         // We assume the attribute names are in the same order of the content
                         String plainValue;
                         // Get the proteciton type of this attribute
@@ -451,19 +453,18 @@ public class HomomorphicModule implements DataOperation{
                             // Simply copy the content
                             plainValue = content[i][j];
                         }
-                        row[j] = plainValue;
+                    row[j] = plainValue;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        System.exit(1);
                     }
-                    plainContents.add(row);
-                    rowCount++;
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                System.exit(1);
-            }
+                });
+                plainContents.add(row);
+            });
 
             // Encapsulate the output
             DataOperationResult command = new HomomorphicResult(plainAttributeNames,
-                    plainContents.toArray(new String[rowCount][plainAttributeNames.length]));
+                    plainContents.toArray(new String[plainContents.size()][plainAttributeNames.length]));
             commands.add(command);
         }
         return commands;
@@ -480,85 +481,88 @@ public class HomomorphicModule implements DataOperation{
         // (i.e. not marking them since this mapping WILL NOT be filtered later)
         Map<String, String> attributesMapping = this.buildAttributesMapping(attributeNames, notCoveredAttrib -> notCoveredAttrib, unprotectedAttrib -> unprotectedAttrib);
 
-        try {
             // Second, obfuscate the contents
-            for (int i = 0; i < contents.length; i++) {
-                for (int j = 0; j < attributeNames.length; j++) {
-                    // Get the prpteciton type of this attribute
-                    // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
-                    String matchedProtection = null;
-                    for(String protectionRule : this.attributeTypes.keySet()){
-                        Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
-                        if(p.matcher(attributeNames[j]).matches()){
-                            matchedProtection = protectionRule;
-                        }
-                    }
-
-                    // If none matches, ignore this attribute => it is not convered by the Policy
-                    if(matchedProtection == null)
-                        continue;
-
-                    String protection = typesProtection.get(this.attributeTypes.get(matchedProtection));
-                    // Encrypt only if the protection type is "homomorphic"
-                    if (protection.equals("homomorphic")) {
-                        // Get the dataID
-                        String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
-
-                        // Get the KeyPair
-                        KeyPair key = this.keyStore.retrieveKey(dataID);
-
-                        if (this.dataTypes.get(matchedProtection).equals("geometric_object")) {
-                            String value = contents[i][j];
-                            GeometryBuilder builder = new GeometryBuilder();
-                            Object geom = builder.decode(value);
-                            if (geom != null) {
-                                // NOTE - To correctly encrypt, just cipher coordinates
-                                if (geom instanceof Point) {
-                                    Point point = (Point) geom;
-                                    double maxX, maxY;
-                                    int srid = point.getSrid();
-                                    if (srid != 0) {
-                                        ProjectedCRS crs = ProjectedCRS.resolve(srid);
-                                        maxX = crs.getAxis("x").getMax();
-                                        maxY = crs.getAxis("y").getMax();
-                                    } else {
-                                        maxX = Double.MAX_VALUE;
-                                        maxY = Double.MAX_VALUE;
-                                    }
-                                    // Homomorphically encrypt a real value is not mathematically possible.
-                                    /*
-                                     * point.x = encryptDouble(cipher, point.x, maxX);
-                                     * point.y = encryptDouble(cipher, point.y, maxY);
-                                     */
-                                }
-                                value = builder.encode(geom);
+            IntStream.range(0, contents.length).parallel().forEach(i -> {
+            //IntStream.range(0, contents.length).forEach(i -> {
+                //for (int j = 0; j < attributeNames.length; j++) {
+                IntStream.range(0, attributeNames.length).parallel().forEach(j -> {
+                //IntStream.range(0, attributeNames.length).forEach(j -> {
+                    try{
+                        // Get the prpteciton type of this attribute
+                        // Find which "protectionRule" (in the keyset of attributeTypes) matches the given attribute name
+                        String matchedProtection = null;
+                        for(String protectionRule : this.attributeTypes.keySet()){
+                            Pattern p = Pattern.compile(AttributeNamesUtilities.escapeRegex(protectionRule));
+                            if(p.matcher(attributeNames[j]).matches()){
+                                matchedProtection = protectionRule;
                             }
-                            encContents[i][j] = value;
-                        } else {
-                            // Create the BigInteger object
-                            // In this part we will assume the homomorphic attributes ARE integers
-                            // This can be assumed since homomophic operations are guaranteed only on Interger
-                            // Parse the value.
-                            long contentValue = (long) Double.parseDouble(contents[i][j]);
-                            BigInteger bigIntValue = BigInteger.valueOf(contentValue);
-
-                            // Encrypt the value and obtain the bytes representation
-                            EncryptedInteger encrypted = Paillier.encrypt(key.getPublic(), bigIntValue);
-                            BigInteger encValue = encrypted.getValue();
-
-                            // Encode the bytes using Base64
-                            encContents[i][j] = encoder.encodeToString(encValue.toByteArray());
                         }
-                    } else {
-                        // Simply copy the content
-                        encContents[i][j] = contents[i][j];
+
+                        // If none matches, ignore this attribute => it is not convered by the Policy
+                        if(matchedProtection == null)
+                            return;
+
+                        String protection = typesProtection.get(this.attributeTypes.get(matchedProtection));
+                        // Encrypt only if the protection type is "homomorphic"
+                        if (protection.equals("homomorphic")) {
+                            // Get the dataID
+                            String dataID = this.typesDataIDs.get(this.attributeTypes.get(matchedProtection));
+
+                            // Get the KeyPair
+                            KeyPair key = this.keyStore.retrieveKey(dataID);
+
+                            if (this.dataTypes.get(matchedProtection).equals("geometric_object")) {
+                                String value = contents[i][j];
+                                GeometryBuilder builder = new GeometryBuilder();
+                                Object geom = builder.decode(value);
+                                if (geom != null) {
+                                    // NOTE - To correctly encrypt, just cipher coordinates
+                                    if (geom instanceof Point) {
+                                        Point point = (Point) geom;
+                                        double maxX, maxY;
+                                        int srid = point.getSrid();
+                                        if (srid != 0) {
+                                            ProjectedCRS crs = ProjectedCRS.resolve(srid);
+                                            maxX = crs.getAxis("x").getMax();
+                                            maxY = crs.getAxis("y").getMax();
+                                        } else {
+                                            maxX = Double.MAX_VALUE;
+                                            maxY = Double.MAX_VALUE;
+                                        }
+                                        // Homomorphically encrypt a real value is not mathematically possible.
+                                        /*
+                                         * point.x = encryptDouble(cipher, point.x, maxX);
+                                         * point.y = encryptDouble(cipher, point.y, maxY);
+                                         */
+                                    }
+                                    value = builder.encode(geom);
+                                }
+                                encContents[i][j] = value;
+                            } else {
+                                // Create the BigInteger object
+                                // In this part we will assume the homomorphic attributes ARE integers
+                                // This can be assumed since homomophic operations are guaranteed only on Interger
+                                // Parse the value.
+                                long contentValue = (long) Double.parseDouble(contents[i][j]);
+                                BigInteger bigIntValue = BigInteger.valueOf(contentValue);
+
+                                // Encrypt the value and obtain the bytes representation
+                                EncryptedInteger encrypted = Paillier.encrypt(key.getPublic(), bigIntValue);
+                                BigInteger encValue = encrypted.getValue();
+
+                                // Encode the bytes using Base64
+                                encContents[i][j] = encoder.encodeToString(encValue.toByteArray());
+                            }
+                        } else {
+                            // Simply copy the content
+                            encContents[i][j] = contents[i][j];
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        System.exit(1);
                     }
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.exit(1);
-        }
+                });
+            });
 
         // Generate the ORDERED list of the protected attributeNames
         List<String> protectedAttributes = new ArrayList<>();
@@ -593,7 +597,7 @@ public class HomomorphicModule implements DataOperation{
         // Second, process the Criteria to transform the requested
         // AttributeNames to the protected ones
         if (criteria != null) {
-            Stream.of(criteria).forEach(criterion -> {
+            Stream.of(criteria).parallel().forEach(criterion -> {
                 // Determine if the column is encrypted of not
                 String protectedAttribute = attributesMapping.get(criterion.getAttributeName());
                 if (!criterion.getAttributeName().equals(protectedAttribute)) {
