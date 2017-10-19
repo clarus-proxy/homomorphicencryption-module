@@ -1,4 +1,5 @@
 # CLARUS Simple Encryption Module
+[![Build Status](https://travis-ci.org/clarus-proxy/homomorphicencryption-module.svg?branch=master)](https://travis-ci.org/clarus-proxy/homomorphicencryption-module)
 
 ## Description
 
