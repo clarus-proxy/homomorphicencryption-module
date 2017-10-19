@@ -20,7 +20,7 @@ The Key Pair length is stored in the key sotre. If this configuration is
 not available, a default lenght of 2048 bits will be used to generate the keys.
 
 The connection data of the mongo Key Store is specified in the file:
-`/etc/clarus/clarus-mgmt-tools.conf`
+`/etc/clarus/clarus-keystore.conf`
 which is a JSON-based file with multiple configurations. The lines concerned
 with this module are:
 
@@ -54,3 +54,10 @@ downloaded and compiled:
 `mvn install`
 
 After this procedure, the compiled jar file can be found under `target/dataoperations.homomorphic-(version)-SNAPSHOT.jar`
+
+Finally, it is required to install the configuraiton file in the machine.
+This is done by executing the script `install_conf.sh` as superuser. This is
+required since the script will create a folder under `/etc` and copy a file
+into it:
+
+`sudo ./install_conf.sh`
