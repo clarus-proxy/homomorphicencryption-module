@@ -6,10 +6,10 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import static com.mongodb.client.model.Filters.eq;
 import com.mongodb.client.model.UpdateOptions;
-import eu.clarussecure.encryption.paillier.KeyPair;
-import eu.clarussecure.encryption.paillier.Paillier;
-import eu.clarussecure.encryption.paillier.PublicKey;
-import eu.clarussecure.encryption.paillier.SecretKey;
+import cat.urv.crises.eigenpaillier.paillier.KeyPair;
+import cat.urv.crises.eigenpaillier.paillier.Paillier;
+import cat.urv.crises.eigenpaillier.paillier.PublicKey;
+import cat.urv.crises.eigenpaillier.paillier.SecretKey;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -108,7 +108,7 @@ public class KeyStore {
 
             // Create the Key Objects
             sk = new SecretKey(skL, skM);
-            pk = new PublicKey(pkN, pkG);
+            pk = new PublicKey(pkN);
             keyPair = new KeyPair(pk, sk);
         }
         return keyPair;

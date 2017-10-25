@@ -3,7 +3,7 @@ package eu.clarussecure.dataoperations.homomorphic.testing;
 import eu.clarussecure.dataoperations.Criteria;
 import eu.clarussecure.dataoperations.homomorphic.HomomorphicRemoteOperationCommand;
 import eu.clarussecure.dataoperations.homomorphic.operators.Select;
-import eu.clarussecure.encryption.paillier.EncryptedInteger;
+import cat.urv.crises.eigenpaillier.paillier.EncryptedInteger;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.ArrayList;

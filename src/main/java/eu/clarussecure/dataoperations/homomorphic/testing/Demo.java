@@ -26,8 +26,8 @@ import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 
 public class Demo {
-    public final static String POLICY_FILENAME = "sec-pol-examples/homo-pol.xml";
-    public final static String DATA_FILENAME = "sec-pol-examples/meuse2.txt";
+    public final static String POLICY_FILENAME = "/Users/diegorivera/Dropbox/Montimage/CLARUS/sec-pol-examples/homo-pol.xml";
+    public final static String DATA_FILENAME = "/Users/diegorivera/Dropbox/Montimage/CLARUS/sec-pol-examples/meuse2.txt";
     public final static int HOMOCOLUMN = 2;
 
     public static void main(String[] args) throws IOException, SAXException, ParserConfigurationException {

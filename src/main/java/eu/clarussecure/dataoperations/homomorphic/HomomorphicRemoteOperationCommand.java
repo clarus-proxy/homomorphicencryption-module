@@ -1,8 +1,8 @@
 package eu.clarussecure.dataoperations.homomorphic;
 
 import eu.clarussecure.dataoperations.Criteria;
-import eu.clarussecure.encryption.paillier.EncryptedInteger;
-import eu.clarussecure.encryption.paillier.PublicKey;
+import cat.urv.crises.eigenpaillier.paillier.EncryptedInteger;
+import cat.urv.crises.eigenpaillier.paillier.PublicKey;
 import java.util.Map;
 
 public class HomomorphicRemoteOperationCommand extends HomomorphicCommand {
