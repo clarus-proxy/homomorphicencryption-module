@@ -48,6 +48,9 @@ public class HomomorphicModule implements DataOperation{
 
     // Map of the fully-qualified Attribute Names
     protected List<String> qualifiedAttributes = new ArrayList<>();
+    
+    // From Encryption ISSUE #3
+    protected final static String NULL_PROTECTION_FLAG = "NULL_PROTECTION";
 
     // Mapping to determine where to store each qualified name
     protected int cloudsNumber;
@@ -71,6 +74,8 @@ public class HomomorphicModule implements DataOperation{
             // Add the information to the map
             this.attributeTypes.put(attributeName, attributeType);
             this.dataTypes.put(attributeName, dataType);
+            // From Encryption ISSUE #3
+            this.typesProtection.put(attributeType, HomomorphicModule.NULL_PROTECTION_FLAG);
         }
 
         /*
